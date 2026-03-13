@@ -1,0 +1,1 @@
+# EKS_container_DNS_communication_with_FastAPI
