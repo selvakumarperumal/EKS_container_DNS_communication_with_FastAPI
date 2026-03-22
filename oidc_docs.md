@@ -194,6 +194,176 @@ resource "aws_iam_role_policy" "inline" {
 }
 ```
 
+### Deep Dive — `aws_iam_role` Trust Policy Explained
+
+The `aws_iam_role` resource above is the **most critical piece** of IRSA. Here's every field explained:
+
+---
+
+#### `name`, `description`, `tags`
+
+```hcl
+name        = var.role_name        # e.g. "eks-backend-s3-role"
+description = var.role_description # human-readable purpose
+tags        = var.tags             # key-value labels for organization/billing
+```
+
+Simple metadata — just naming and tagging the IAM role.
+
+---
+
+#### `assume_role_policy` — The Trust Policy
+
+```hcl
+assume_role_policy = jsonencode({ ... })
+```
+
+This is the **trust policy** — it answers: **"WHO is allowed to assume (use) this role?"**
+
+Think of it like a **door lock** — it defines who has the key.
+
+`jsonencode()` converts HCL map → JSON string, because AWS expects trust policies in JSON format.
+
+---
+
+#### `Version = "2012-10-17"`
+
+This is the **IAM policy language version**. It's always `"2012-10-17"` — this is **not a date you choose**, it's the latest (and only widely used) version of the AWS policy language. Always use this.
+
+---
+
+#### `Effect = "Allow"`
+
+Two possible values: `"Allow"` or `"Deny"`. Here it says: **"Yes, allow this action"**.
+
+---
+
+#### `Principal` — **WHO** Can Assume This Role
+
+```hcl
+Principal = {
+  Federated = var.oidc_provider_arn
+}
+```
+
+**Principal = the entity requesting access.**
+
+| Principal Type | Example | Use Case |
+|---|---|---|
+| `Service` | `"ec2.amazonaws.com"` | AWS service (EC2, Lambda) assuming the role |
+| `AWS` | `"arn:aws:iam::123456:root"` | Another AWS account or IAM user |
+| **`Federated`** | `"arn:aws:iam::123456:oidc-provider/oidc.eks..."` | **External identity provider (OIDC)** |
+
+**Why `Federated`?** In IRSA, the Kubernetes cluster acts as an **external identity provider** using OIDC. The pod gets a **JWT token** from Kubernetes, and AWS verifies that token against the OIDC provider. Since the identity comes from **outside AWS** (from Kubernetes), it's "federated."
+
+`var.oidc_provider_arn` looks like:
+```
+arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/ABCDEF1234567890
+```
+
+---
+
+#### `Action = "sts:AssumeRoleWithWebIdentity"`
+
+This specifies **what action** the principal can perform.
+
+**Why not `sts:AssumeRole`?**
+
+| Action | When Used | How It Works |
+|---|---|---|
+| `sts:AssumeRole` | AWS service or IAM user | Uses AWS credentials directly |
+| **`sts:AssumeRoleWithWebIdentity`** | **OIDC/Federated identity** | **Uses a JWT token from an external identity provider** |
+
+Since our pod gets a **JWT (web identity token)** from the Kubernetes OIDC provider, it uses `AssumeRoleWithWebIdentity`:
+
+```
+Pod → gets JWT from K8s → sends JWT to AWS STS → STS verifies with OIDC provider → returns temporary AWS credentials
+```
+
+---
+
+#### `Condition` — **UNDER WHAT conditions** is access allowed
+
+This is the **security lock-down**. Without conditions, **any pod in the cluster** could assume this role (because the OIDC provider covers the whole cluster).
+
+```hcl
+Condition = {
+  StringEquals = { ... }
+}
+```
+
+`StringEquals` = values must match **exactly** (case-sensitive). More secure than `StringLike` (which supports wildcards).
+
+---
+
+#### Condition 1: `:sub` (Subject) — **WHICH ServiceAccount**
+
+```hcl
+"${local.oidc_id}:sub" = "system:serviceaccount:${var.namespace}:${var.service_account_name}"
+```
+
+| Part | Meaning |
+|---|---|
+| `${local.oidc_id}` | OIDC provider ID, e.g. `oidc.eks.us-east-1.amazonaws.com/id/ABCDEF...` |
+| `:sub` | The **subject** claim inside the JWT — identifies **who** the token was issued to |
+| `system:serviceaccount:` | Kubernetes format for ServiceAccount identity |
+| `${var.namespace}` | K8s namespace, e.g. `backend` |
+| `${var.service_account_name}` | K8s ServiceAccount name, e.g. `backend-api-sa` |
+
+**Full example value:** `"system:serviceaccount:backend:backend-api-sa"`
+
+**What this does:** Only a pod running with **this exact ServiceAccount** in **this exact namespace** can assume the role. Different SA or different namespace → **ACCESS DENIED**.
+
+---
+
+#### Condition 2: `:aud` (Audience) — **WHO the token is for**
+
+```hcl
+"${local.oidc_id}:aud" = "sts.amazonaws.com"
+```
+
+| Part | Meaning |
+|---|---|
+| `:aud` | The **audience** claim inside the JWT — identifies **who the token is intended for** |
+| `sts.amazonaws.com` | Token is intended for AWS STS (Security Token Service) |
+
+**What this does:** Ensures the JWT was specifically created for **AWS STS**. Prevents a token created for another purpose from being reused. This is **always** `sts.amazonaws.com` for IRSA.
+
+---
+
+#### Complete Verification Flow
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Pod starts with ServiceAccount "backend-api-sa"              │
+│ in namespace "backend"                                       │
+│                                                              │
+│ K8s injects a JWT into the pod containing:                   │
+│   sub: "system:serviceaccount:backend:backend-api-sa"        │
+│   aud: "sts.amazonaws.com"                                   │
+└────────────────────────┬─────────────────────────────────────┘
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Pod calls AWS STS: AssumeRoleWithWebIdentity                 │
+│   sends the JWT token + requests this IAM role               │
+└────────────────────────┬─────────────────────────────────────┘
+                         │
+                         ▼
+┌──────────────────────────────────────────────────────────────┐
+│ AWS STS checks:                                              │
+│   ✅ Is Principal (OIDC provider) valid?                     │
+│   ✅ Is Action = AssumeRoleWithWebIdentity?                  │
+│   ✅ Does JWT "sub" match the condition?                     │
+│   ✅ Does JWT "aud" match "sts.amazonaws.com"?               │
+│                                                              │
+│   ALL pass → returns temporary AWS credentials               │
+│   ANY fail → ACCESS DENIED                                   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ```hcl
 # modules/irsa/outputs.tf
 
