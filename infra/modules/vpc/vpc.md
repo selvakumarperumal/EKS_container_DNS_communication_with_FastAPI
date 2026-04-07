@@ -644,6 +644,80 @@ Docker Hub responds back to your ALB on a HIGH port (e.g. 54231) — called ephe
 Because NACLs are stateless, you must allow inbound 1024-65535 or the response is blocked.
 ```
 
+**Round Trip NACL Diagrams (Stateless Behavior):**
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'background':'#282A36','primaryColor':'#44475A','primaryTextColor':'#F8F8F2','primaryBorderColor':'#6272A4','lineColor':'#8BE9FD'}}}%%
+flowchart LR
+  user[User Salem Client src 52143]
+  alb[ALB Public Subnet dst 443]
+  nacl[NACL Public Subnet]
+
+  user -->|Inbound request src 52143 dst 443| nacl
+  nacl -->|Rule 100 allow inbound 443| alb
+
+  alb -->|Outbound response src 443 dst 52143| nacl
+  nacl -->|Egress Rule 100 allow all| user
+
+  classDef edge fill:#44475A,stroke:#8BE9FD,color:#F8F8F2;
+  classDef pub fill:#FFB86C,stroke:#FFB86C,color:#282A36;
+  classDef rule fill:#BD93F9,stroke:#BD93F9,color:#282A36;
+
+  class user edge;
+  class alb pub;
+  class nacl rule;
+```
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'background':'#282A36','primaryColor':'#44475A','primaryTextColor':'#F8F8F2','primaryBorderColor':'#6272A4','lineColor':'#8BE9FD'}}}%%
+flowchart LR
+  ec2[Subnet Client src 35000]
+  nacl[NACL Public Subnet]
+  dst[Docker or GitHub dst 443]
+
+  ec2 -->|Outbound request src 35000 dst 443| nacl
+  nacl -->|Egress Rule 100 allow all| dst
+
+  dst -->|Inbound response src 443 dst 35000| nacl
+  nacl -->|Rule 300 allow inbound 1024 to 65535| ec2
+
+  classDef pri fill:#50FA7B,stroke:#50FA7B,color:#282A36;
+  classDef pub fill:#FFB86C,stroke:#FFB86C,color:#282A36;
+  classDef rule fill:#BD93F9,stroke:#BD93F9,color:#282A36;
+
+  class ec2 pri;
+  class dst pub;
+  class nacl rule;
+```
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'background':'#282A36','primaryColor':'#44475A','primaryTextColor':'#F8F8F2','primaryBorderColor':'#6272A4','lineColor':'#8BE9FD'}}}%%
+flowchart TB
+  in100[Ingress Rule 100 TCP 443]
+  in200[Ingress Rule 200 TCP 80]
+  in300[Ingress Rule 300 TCP 1024 to 65535]
+  in400[Ingress Rule 400 All Protocols VPC CIDR]
+  out100[Egress Rule 100 All Protocols All Ports]
+
+  p1[Web users to HTTPS endpoint]
+  p2[Web users to HTTP redirect]
+  p3[Return path to client ephemeral ports]
+  p4[Internal VPC communication]
+  p5[Allow subnet outbound traffic]
+
+  in100 --> p1
+  in200 --> p2
+  in300 --> p3
+  in400 --> p4
+  out100 --> p5
+
+  classDef rule fill:#BD93F9,stroke:#BD93F9,color:#282A36;
+  classDef purpose fill:#50FA7B,stroke:#50FA7B,color:#282A36;
+
+  class in100,in200,in300,in400,out100 rule;
+  class p1,p2,p3,p4,p5 purpose;
+```
+
 **Outbound:**
 - Rule 100: Allow everything outbound. Public subnets need unrestricted outbound for ALB → node communication and NAT forwarding.
 
