@@ -310,42 +310,69 @@ kubectl get externalsecret -n fastapi
 kubectl get clustersecretstore
 ```
 
-### Quick Smoke Test
+### Access the Application (Public ALB)
 
 ```bash
-# Port-forward to test locally (bypasses ALB)
-kubectl port-forward svc/test-fastapi-app 8000:80 -n fastapi
+# Get the ALB public DNS name
+ALB_DNS=$(kubectl get ingress -n fastapi \
+  -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}')
+echo "App URL: https://${ALB_DNS}"
 
-# Health check
-curl http://localhost:8000/health
+# Health check (via ALB public endpoint)
+curl https://${ALB_DNS}/health
 
 # Prometheus metrics
-curl http://localhost:8000/metrics
+curl https://${ALB_DNS}/metrics
 
-# Swagger UI
-open http://localhost:8000/docs
+# Swagger UI — open in browser
+echo "https://${ALB_DNS}/docs"
 ```
+
+If you configured a custom domain with Route53 (see Step 9):
+
+```bash
+curl https://api.example.com/health
+curl https://api.example.com/metrics
+# Swagger UI: https://api.example.com/docs
+```
+
+> **Debug only** — If ALB is not yet ready, you can port-forward temporarily:
+> ```bash
+> kubectl port-forward svc/test-fastapi-app 8000:80 -n fastapi
+> curl http://localhost:8000/health
+> ```
 
 ---
 
 ## Step 8 — Access Observability Stack
 
+Observability tools (ArgoCD, Grafana) are internal services. Expose them
+via an internal ALB or use `kubectl port-forward` from a bastion/VPN-connected machine.
+
 ### ArgoCD UI
 
 ```bash
+# Get the admin password
 kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' | base64 -d && echo
 
+# Expose temporarily (from a machine with kubectl access)
 kubectl port-forward svc/argocd-server 8443:443 -n argocd
-# Open: https://localhost:8443  (admin / <password>)
+# Then open: https://<your-machine-ip>:8443  (admin / <password>)
 ```
+
+> **Production recommendation:** Create a separate internal ALB Ingress for
+> ArgoCD with restricted security group rules, or access via AWS SSM Session Manager.
 
 ### Grafana (metrics + dashboards)
 
 ```bash
 kubectl port-forward svc/prometheus-grafana 3000:80 -n observability
-# Open: http://localhost:3000  (admin / <grafana_admin_password>)
+# Then open: http://<your-machine-ip>:3000  (admin / <grafana_admin_password>)
 ```
+
+> **Production recommendation:** Expose Grafana via internal ALB with
+> SSO/OAuth2 integration, or keep it behind VPN.
 
 Pre-configured data sources:
 - **Prometheus** — metrics (auto-discovered via ServiceMonitor)
@@ -377,19 +404,42 @@ Recommended dashboards to import:
 
 ---
 
-## Step 9 — Configure Route53 DNS (optional)
+## Step 9 — Configure Route53 DNS
 
-After the ALB is provisioned:
+The ALB gets a public AWS-generated hostname. Map your custom domain to it:
 
 ```bash
-ALB_DNS=$(kubectl get ingress -n fastapi -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}')
-echo $ALB_DNS
+# Get the ALB public DNS
+ALB_DNS=$(kubectl get ingress -n fastapi \
+  -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}')
+echo "ALB endpoint: ${ALB_DNS}"
 ```
 
-Create a CNAME or Alias record in Route53:
-- **Name:** `api.example.com`
-- **Type:** CNAME (or A-record Alias to ALB)
-- **Value:** `<ALB_DNS>`
+Create a DNS record in Route53 (or your DNS provider):
+
+| Field | Value |
+|-------|-------|
+| Name | `api.example.com` |
+| Type | **A** (Alias) or **CNAME** |
+| Value | `<ALB_DNS>` |
+| Alias Target | Select the ALB from the dropdown (if Route53 Alias) |
+
+Verify:
+
+```bash
+# Should resolve to the ALB
+dig api.example.com
+
+# Access your app globally
+curl https://api.example.com/health
+# {"status":"ok"}
+
+# Swagger UI
+open https://api.example.com/docs
+```
+
+> Without Route53, the app is still publicly accessible via the ALB DNS:
+> `https://<ALB_DNS>/docs`
 
 ---
 
