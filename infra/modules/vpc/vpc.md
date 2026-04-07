@@ -10,57 +10,58 @@ This module builds a production-ready VPC with everything EKS needs to run.
 ## Network Architecture
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'background':'#282A36','primaryColor':'#44475A','primaryTextColor':'#F8F8F2','primaryBorderColor':'#6272A4','lineColor':'#8BE9FD','secondaryColor':'#3B3F52','tertiaryColor':'#2E3142'}}}%%
 flowchart TB
   internet[Internet]
   igw[Internet Gateway]
   internet --> igw
 
-  subgraph vpc[VPC 10.0.0.0/16]
+  subgraph vpc[VPC 10.0.0.0 16]
     direction TB
 
     subgraph public[Public Subnets]
       direction LR
-      pub1[AZ-1 Public 10.0.101.0/24]
-      pub2[AZ-2 Public 10.0.102.0/24]
-      pub3[AZ-3 Public 10.0.103.0/24]
-      nat[NAT Gateway + EIP]
-      alb[Application Load Balancer]
+      pub1[AZ1 Public 10.0.101.0 24]
+      pub2[AZ2 Public 10.0.102.0 24]
+      pub3[AZ3 Public 10.0.103.0 24]
+      nat[NAT Gateway EIP]
+      alb[ALB]
       pub1 --- nat
       pub2 --- alb
     end
 
     subgraph private[Private Subnets]
       direction LR
-      p1[AZ-1 Private 10.0.1.0/24<br/>EKS Nodes / Pods]
-      p2[AZ-2 Private 10.0.2.0/24<br/>EKS Nodes / Pods]
-      p3[AZ-3 Private 10.0.3.0/24<br/>EKS Nodes / Pods]
-      rt[Private Route Table(s)]
+      p1[AZ1 Private 10.0.1.0 24 EKS]
+      p2[AZ2 Private 10.0.2.0 24 EKS]
+      p3[AZ3 Private 10.0.3.0 24 EKS]
+      rt[Private Route Tables]
     end
 
-    sec[NACLs + VPC Flow Logs]
+    sec[NACL and VPC Flow Logs]
   end
 
-  igw -->|Ingress / Egress| alb
-  igw -->|Egress via NAT| nat
-  alb -->|App traffic| p1
-  alb -->|App traffic| p2
-  alb -->|App traffic| p3
+  igw --> alb
+  igw --> nat
+  alb --> p1
+  alb --> p2
+  alb --> p3
   p1 --> rt
   p2 --> rt
   p3 --> rt
   rt --> nat
 
-  classDef edge fill:#eaf3ff,stroke:#2f6feb,stroke-width:1px,color:#0b1f3b;
-  classDef public fill:#fff4d6,stroke:#a66a00,stroke-width:1px,color:#3a2a00;
-  classDef private fill:#e8ffe8,stroke:#1f7a1f,stroke-width:1px,color:#0d3b0d;
-  classDef route fill:#f4ecff,stroke:#6f42c1,stroke-width:1px,color:#2f1a5a;
-  classDef security fill:#f2f2f2,stroke:#555,stroke-width:1px,color:#222;
+  classDef edge fill:#44475A,stroke:#8BE9FD,color:#F8F8F2;
+  classDef pub fill:#FFB86C,stroke:#FFB86C,color:#282A36;
+  classDef pri fill:#50FA7B,stroke:#50FA7B,color:#282A36;
+  classDef route fill:#BD93F9,stroke:#BD93F9,color:#282A36;
+  classDef sec fill:#6272A4,stroke:#6272A4,color:#F8F8F2;
 
   class internet,igw edge;
-  class pub1,pub2,pub3,nat,alb public;
-  class p1,p2,p3 private;
+  class pub1,pub2,pub3,nat,alb pub;
+  class p1,p2,p3 pri;
   class rt route;
-  class sec security;
+  class sec sec;
 ```
 
 ---
@@ -68,28 +69,36 @@ flowchart TB
 ## Traffic Flow Summary
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'background':'#282A36','primaryColor':'#44475A','primaryTextColor':'#F8F8F2','primaryBorderColor':'#6272A4','lineColor':'#8BE9FD'}}}%%
 flowchart LR
   user[User]
   igw[Internet Gateway]
-  alb[ALB in Public Subnet]
-  podA[Pod A in Private Subnet]
-  podB[Pod B in Private Subnet]
+  alb[ALB Public Subnet]
+  podA[Pod A Private Subnet]
+  podB[Pod B Private Subnet]
   prt[Private Route Table]
   nat[NAT Gateway]
   internet[Internet]
 
-  user -->|Inbound HTTPS| igw --> alb --> podA
-  podA -->|Outbound 0.0.0.0/0| prt --> nat --> igw --> internet
-  podA -->|East-West (internal)| podB
+  user --> igw
+  igw --> alb
+  alb --> podA
 
-  classDef ingress fill:#fff4d6,stroke:#a66a00,color:#3a2a00;
-  classDef private fill:#e8ffe8,stroke:#1f7a1f,color:#0d3b0d;
-  classDef route fill:#f4ecff,stroke:#6f42c1,color:#2f1a5a;
-  classDef edge fill:#eaf3ff,stroke:#2f6feb,color:#0b1f3b;
+  podA --> prt
+  prt --> nat
+  nat --> igw
+  igw --> internet
+
+  podA --> podB
+
+  classDef edge fill:#44475A,stroke:#8BE9FD,color:#F8F8F2;
+  classDef pub fill:#FFB86C,stroke:#FFB86C,color:#282A36;
+  classDef pri fill:#50FA7B,stroke:#50FA7B,color:#282A36;
+  classDef route fill:#BD93F9,stroke:#BD93F9,color:#282A36;
 
   class user,igw,internet edge;
-  class alb ingress;
-  class podA,podB private;
+  class alb pub;
+  class podA,podB pri;
   class prt,nat route;
 ```
 
@@ -295,87 +304,95 @@ single_nat_gateway = false  (production):
 **Diagram: Single NAT Gateway (`single_nat_gateway = true`)**
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'background':'#282A36','primaryColor':'#44475A','primaryTextColor':'#F8F8F2','primaryBorderColor':'#6272A4','lineColor':'#8BE9FD'}}}%%
 flowchart TB
   internet[Internet]
   igw[Internet Gateway]
   internet --> igw
 
-  subgraph vpc[VPC 10.0.0.0/16]
+  subgraph vpc[VPC 10.0.0.0 16]
     direction TB
-    subgraph pub1[Public Subnet AZ-1]
-      nat[NAT Gateway (single) + EIP]
+    subgraph pub1[Public Subnet AZ1]
+      nat[NAT Gateway Single EIP]
     end
-    prt[Shared Private Route Table<br/>0.0.0.0/0 -> NAT GW]
-    subgraph priv[Private Subnets Across 3 AZs]
+    prt[Shared Private Route Table default to NAT]
+    subgraph priv[Private Subnets across 3 AZ]
       direction LR
-      p1[AZ-1 10.0.1.0/24]
-      p2[AZ-2 10.0.2.0/24]
-      p3[AZ-3 10.0.3.0/24]
+      p1[AZ1 10.0.1.0 24]
+      p2[AZ2 10.0.2.0 24]
+      p3[AZ3 10.0.3.0 24]
     end
   end
 
   p1 --> prt
   p2 --> prt
   p3 --> prt
-  prt -->|All outbound traffic| nat
+  prt --> nat
   nat --> igw
 
-  classDef edge fill:#eaf3ff,stroke:#2f6feb,color:#0b1f3b;
-  classDef public fill:#fff4d6,stroke:#a66a00,color:#3a2a00;
-  classDef private fill:#e8ffe8,stroke:#1f7a1f,color:#0d3b0d;
-  classDef route fill:#f4ecff,stroke:#6f42c1,color:#2f1a5a;
+  classDef edge fill:#44475A,stroke:#8BE9FD,color:#F8F8F2;
+  classDef pub fill:#FFB86C,stroke:#FFB86C,color:#282A36;
+  classDef pri fill:#50FA7B,stroke:#50FA7B,color:#282A36;
+  classDef route fill:#BD93F9,stroke:#BD93F9,color:#282A36;
 
   class internet,igw edge;
-  class nat public;
-  class p1,p2,p3 private;
+  class nat pub;
+  class p1,p2,p3 pri;
   class prt route;
 ```
 
 **Diagram: Multi NAT Gateway (`single_nat_gateway = false`)**
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'background':'#282A36','primaryColor':'#44475A','primaryTextColor':'#F8F8F2','primaryBorderColor':'#6272A4','lineColor':'#8BE9FD'}}}%%
 flowchart TB
   internet[Internet]
   igw[Internet Gateway]
   internet --> igw
 
-  subgraph vpc[VPC 10.0.0.0/16]
+  subgraph vpc[VPC 10.0.0.0 16]
     direction TB
 
     subgraph pub[Public Subnets]
       direction LR
-      nat1[NAT GW-1 + EIP (AZ-1)]
-      nat2[NAT GW-2 + EIP (AZ-2)]
-      nat3[NAT GW-3 + EIP (AZ-3)]
+      nat1[NAT GW1 EIP AZ1]
+      nat2[NAT GW2 EIP AZ2]
+      nat3[NAT GW3 EIP AZ3]
     end
 
     subgraph rt[Private Route Tables]
       direction LR
-      rt1[RT-1: 0.0.0.0/0 -> NAT-1]
-      rt2[RT-2: 0.0.0.0/0 -> NAT-2]
-      rt3[RT-3: 0.0.0.0/0 -> NAT-3]
+      rt1[RT1 default to NAT1]
+      rt2[RT2 default to NAT2]
+      rt3[RT3 default to NAT3]
     end
 
     subgraph privs[Private Subnets]
       direction LR
-      s1[Subnet AZ-1 10.0.1.0/24]
-      s2[Subnet AZ-2 10.0.2.0/24]
-      s3[Subnet AZ-3 10.0.3.0/24]
+      s1[Subnet AZ1 10.0.1.0 24]
+      s2[Subnet AZ2 10.0.2.0 24]
+      s3[Subnet AZ3 10.0.3.0 24]
     end
   end
 
-  s1 --> rt1 --> nat1 --> igw
-  s2 --> rt2 --> nat2 --> igw
-  s3 --> rt3 --> nat3 --> igw
+  s1 --> rt1
+  rt1 --> nat1
+  nat1 --> igw
+  s2 --> rt2
+  rt2 --> nat2
+  nat2 --> igw
+  s3 --> rt3
+  rt3 --> nat3
+  nat3 --> igw
 
-  classDef edge fill:#eaf3ff,stroke:#2f6feb,color:#0b1f3b;
-  classDef public fill:#fff4d6,stroke:#a66a00,color:#3a2a00;
-  classDef private fill:#e8ffe8,stroke:#1f7a1f,color:#0d3b0d;
-  classDef route fill:#f4ecff,stroke:#6f42c1,color:#2f1a5a;
+  classDef edge fill:#44475A,stroke:#8BE9FD,color:#F8F8F2;
+  classDef pub fill:#FFB86C,stroke:#FFB86C,color:#282A36;
+  classDef pri fill:#50FA7B,stroke:#50FA7B,color:#282A36;
+  classDef route fill:#BD93F9,stroke:#BD93F9,color:#282A36;
 
   class internet,igw edge;
-  class nat1,nat2,nat3 public;
-  class s1,s2,s3 private;
+  class nat1,nat2,nat3 pub;
+  class s1,s2,s3 pri;
   class rt1,rt2,rt3 route;
 ```
 
@@ -727,6 +744,7 @@ version  account-id  interface-id  srcaddr     dstaddr      srcport  dstport  pr
 ## Complete Resource Dependency Chain
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'background':'#282A36','primaryColor':'#44475A','primaryTextColor':'#F8F8F2','primaryBorderColor':'#6272A4','lineColor':'#8BE9FD'}}}%%
 flowchart TB
   vpc[aws_vpc.main]
 
@@ -771,10 +789,10 @@ flowchart TB
   flow --> rolepol
   flow --> loggrp
 
-  classDef core fill:#eaf3ff,stroke:#2f6feb,color:#0b1f3b;
-  classDef net fill:#fff4d6,stroke:#a66a00,color:#3a2a00;
-  classDef route fill:#f4ecff,stroke:#6f42c1,color:#2f1a5a;
-  classDef sec fill:#f2f2f2,stroke:#555,color:#222;
+  classDef core fill:#44475A,stroke:#8BE9FD,color:#F8F8F2;
+  classDef net fill:#FFB86C,stroke:#FFB86C,color:#282A36;
+  classDef route fill:#BD93F9,stroke:#BD93F9,color:#282A36;
+  classDef sec fill:#6272A4,stroke:#6272A4,color:#F8F8F2;
 
   class vpc core;
   class igw,eip,natgw,pubsub,privsub net;
