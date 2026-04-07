@@ -630,6 +630,10 @@ NACL:            Stateless  — allow inbound 443 → must ALSO explicitly allow
 
 **Inbound Rules:**
 
+Inbound rules control packets entering the subnet ENIs.  
+For web traffic, clients come from random ephemeral source ports and hit fixed destination ports (`80`/`443`) on ALB targets.  
+For outbound-initiated connections, return packets come back from server port `80` or `443` to the client-side ephemeral destination port, which is why rule `300` is required in a stateless NACL.
+
 | Rule | From | Source Port | Destination Port | Example Source IP:Port | Example Destination IP:Port | Why |
 |------|------|-------------|------------------|-------------------------|------------------------------|-----|
 | 100 | Anywhere | 1024-65535 | 443 | `49.37.22.91:52143` | `3.111.45.10:443` | HTTPS traffic to ALB |
@@ -639,9 +643,46 @@ NACL:            Stateless  — allow inbound 443 → must ALSO explicitly allow
 
 **Egress Rules:**
 
+Egress rules control packets leaving the subnet ENIs.  
+In your configuration, egress is intentionally permissive (`allow all`) so ALB/NAT/node traffic is not blocked on the outbound leg.  
+Because NACLs are stateless, this outbound allow does not automatically permit return traffic; inbound return traffic still needs matching inbound rules (especially ephemeral destination ports).
+
 | Rule | To | Source Port | Destination Port | Example Source IP:Port | Example Destination IP:Port | Why |
 |------|----|-------------|------------------|-------------------------|------------------------------|-----|
 | 100 | Anywhere | Any | Any | `10.0.101.25:35000` | `140.82.121.4:443` | Allow outbound internet and VPC traffic from subnet resources |
+
+**How communication happens (step-by-step):**
+
+1. User browsing your app over HTTPS (client is external user, server is ALB)
+   - Request packet enters subnet:
+   `49.37.22.91:52143 -> 3.111.45.10:443`
+   - NACL match:
+   Inbound Rule `100` (`dst port 443`) allows it.
+   - Response packet leaves subnet:
+   `3.111.45.10:443 -> 49.37.22.91:52143`
+   - NACL match:
+   Egress Rule `100` (allow all) allows it.
+
+2. Subnet resource downloading updates (client is EC2/ALB/pod path, server is internet service)
+   - Outbound request packet:
+   `10.0.101.25:35000 -> 140.82.121.4:443`
+   - NACL match:
+   Egress Rule `100` allows it.
+   - Return packet enters subnet:
+   `140.82.121.4:443 -> 10.0.101.25:35000`
+   - NACL match:
+   Inbound Rule `300` (`dst port 1024-65535`) allows it.
+
+3. Internal VPC traffic (for example NAT GW to private subnet)
+   - Packet example:
+   `10.0.101.10:443 -> 10.0.1.25:32000`
+   - NACL match:
+   Inbound Rule `400` (`protocol -1`, VPC CIDR) allows all protocols/ports from inside your VPC.
+
+4. Why timeouts happen when Rule 300 is missing
+   - Outbound request still succeeds because egress allow-all permits it.
+   - Return packet gets dropped at ingress because destination is ephemeral (`35000`) and no inbound rule matches.
+   - Result at app level: connection timeout/retry failures.
 
 **Ephemeral ports explained:**
 ```
