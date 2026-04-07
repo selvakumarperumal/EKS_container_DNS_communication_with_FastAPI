@@ -630,12 +630,12 @@ NACL:            Stateless  — allow inbound 443 → must ALSO explicitly allow
 
 **Inbound Rules:**
 
-| Rule | Port | From | Why |
-|------|------|------|-----|
-| 100 | 443 | Anywhere | HTTPS traffic to ALB |
-| 200 | 80 | Anywhere | HTTP traffic (for redirect to HTTPS) |
-| 300 | 1024-65535 | Anywhere | Return traffic from outbound requests (stateless — must be explicit) |
-| 400 | All | VPC CIDR | Internal VPC communication (NAT GW → subnets, etc.) |
+| Rule | From | Source Port | Destination Port | Why |
+|------|------|-------------|------------------|-----|
+| 100 | Anywhere | 1024-65535 | 443 | HTTPS traffic to ALB |
+| 200 | Anywhere | 1024-65535 | 80 | HTTP traffic (for redirect to HTTPS) |
+| 300 | Anywhere | 80 or 443 | 1024-65535 | Return traffic from outbound requests (stateless — must be explicit) |
+| 400 | VPC CIDR | Any | Any | Internal VPC communication (NAT GW -> subnets, etc.) |
 
 **Ephemeral ports explained:**
 ```
