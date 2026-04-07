@@ -23,21 +23,11 @@ variable "tags" {
 # Set to 'true' to create the secret, 'false' to skip it entirely.
 # -----------------------------------------------------------------------------
 
-variable "create_api_secret" {
-  description = "Whether to create the API key secret in Secrets Manager"
+variable "create_app_secrets" {
+  description = "Whether to create the unified app secrets in Secrets Manager"
   type        = bool
   default     = false
 }
-
-# -----------------------------------------------------------------------------
-# Sensitive Values
-# -----------------------------------------------------------------------------
-# These values are stored in Secrets Manager. They are marked as sensitive
-# so Terraform won't display them in plan/apply output.
-#
-# Default is "" so callers don't need to provide values when the
-# corresponding create_*_secret flag is false.
-# -----------------------------------------------------------------------------
 
 variable "api_key" {
   description = "API key for FastAPI application"
@@ -45,3 +35,18 @@ variable "api_key" {
   sensitive   = true
   default     = ""
 }
+
+variable "db_username" {
+  description = "Database username"
+  type        = string
+  default     = ""
+}
+
+variable "db_password" {
+  description = "Database password"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+

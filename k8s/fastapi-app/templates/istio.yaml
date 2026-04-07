@@ -1,0 +1,63 @@
+{{- if .Values.istio.enabled }}
+---
+# PeerAuthentication — enforce STRICT mTLS across the namespace
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: {{ .Values.namespace }}-mtls
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "fastapi-app.labels" . | nindent 4 }}
+spec:
+  mtls:
+    mode: STRICT
+---
+# DestinationRule — TLS origination + circuit breaking
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: {{ include "fastapi-app.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "fastapi-app.labels" . | nindent 4 }}
+spec:
+  host: {{ include "fastapi-app.fullname" . }}.{{ .Values.namespace }}.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: {{ .Values.istio.circuitBreaker.maxConnections | default 100 }}
+      http:
+        h2UpgradePolicy: DEFAULT
+        maxRequestsPerConnection: {{ .Values.istio.circuitBreaker.maxRequestsPerConnection | default 10 }}
+    outlierDetection:
+      consecutive5xxErrors: {{ .Values.istio.circuitBreaker.consecutive5xxErrors | default 5 }}
+      interval: {{ .Values.istio.circuitBreaker.interval | default "30s" }}
+      baseEjectionTime: {{ .Values.istio.circuitBreaker.baseEjectionTime | default "30s" }}
+      maxEjectionPercent: {{ .Values.istio.circuitBreaker.maxEjectionPercent | default 50 }}
+---
+# VirtualService — traffic routing with retries and timeouts
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: {{ include "fastapi-app.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "fastapi-app.labels" . | nindent 4 }}
+spec:
+  hosts:
+    - {{ include "fastapi-app.fullname" . }}.{{ .Values.namespace }}.svc.cluster.local
+    {{- if .Values.ingress.host }}
+    - {{ .Values.ingress.host }}
+    {{- end }}
+  http:
+    - route:
+        - destination:
+            host: {{ include "fastapi-app.fullname" . }}.{{ .Values.namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.service.port }}
+      timeout: {{ .Values.istio.timeout | default "15s" }}
+      retries:
+        attempts: {{ .Values.istio.retries.attempts | default 3 }}
+        perTryTimeout: {{ .Values.istio.retries.perTryTimeout | default "5s" }}
+        retryOn: {{ .Values.istio.retries.retryOn | default "5xx,reset,connect-failure,retriable-4xx" }}
+{{- end }}

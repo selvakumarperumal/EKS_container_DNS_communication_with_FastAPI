@@ -1,0 +1,15 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3-az
+  labels:
+    {{- include "fastapi-app.labels" . | nindent 4 }}
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer # binds volume in same AZ as pod
+allowVolumeExpansion: true
+parameters:
+  type: gp3
+  iops: "3000"
+  throughput: "125"
+  encrypted: "true"
+reclaimPolicy: Retain # data survives PVC deletion

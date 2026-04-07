@@ -1,0 +1,32 @@
+{{- if .Values.pooler.enabled }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: {{ .Values.pooler.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "fastapi-app.labels" . | nindent 4 }}
+spec:
+  cluster:
+    name: {{ .Values.postgresql.clusterName }}
+  instances: {{ .Values.pooler.instances }}
+  type: {{ .Values.pooler.type }}
+
+  pgbouncer:
+    poolMode: {{ .Values.pooler.poolMode }}
+    parameters:
+      max_client_conn: {{ .Values.pooler.maxClientConn | quote }}
+      default_pool_size: {{ .Values.pooler.defaultPoolSize | quote }}
+      max_db_connections: {{ .Values.pooler.maxDbConnections | quote }}
+
+  # Spread pooler pods across AZs
+  template:
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              cnpg.io/poolerName: {{ .Values.pooler.name }}
+{{- end }}

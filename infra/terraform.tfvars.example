@@ -1,0 +1,60 @@
+# ==============================================================================
+# TERRAFORM VARIABLES — Example Template
+# ==============================================================================
+# Copy this file to terraform.tfvars and fill in your values:
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# The actual terraform.tfvars is excluded from version control (.gitignore).
+# ==============================================================================
+
+# --- General ---
+aws_region  = "ap-south-1"
+
+
+# --- EKS Cluster ---
+cluster_name       = "fastapi-cluster"
+kubernetes_version = "1.30"
+
+# --- VPC Networking ---
+vpc_cidr             = "10.0.0.0/16"
+azs                  = ["ap-south-1a", "ap-south-1b", "ap-south-1c"]
+public_subnet_cidrs  = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
+private_subnet_cidrs = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+
+# --- Kubernetes Service CIDR ---
+service_ipv4_cidr_block = "172.20.0.0/16"
+
+# --- NAT Gateway ---
+enable_nat_gateway = true
+single_nat_gateway = true
+
+# --- VPC Flow Logs ---
+enable_flow_logs            = false
+flow_logs_retention_in_days = 30
+
+# --- Secrets Manager ---
+create_app_secrets = false
+# api_key         = "your-api-key-here"
+
+# --- Kubernetes App Config (For IRSA) ---
+app_namespace       = "fastapi"
+app_service_account = "fastapi-sa"
+
+# --- Tags ---
+tags = {
+  Terraform   = "true"
+  Environment = "prod"
+  Project     = "FastAPI-EKS"
+}
+
+# --- ArgoCD ---
+argocd_repo_url        = "https://github.com/<org>/<repo>.git"
+argocd_target_revision = "HEAD"
+
+# --- Ingress / ALB / TLS ---
+domain_name         = "api.example.com"
+acm_certificate_arn = "arn:aws:acm:ap-south-1:123456789012:certificate/xxx"
+waf_acl_arn         = "arn:aws:wafv2:ap-south-1:123456789012:regional/webacl/xxx"
+
+# --- Observability ---
+grafana_admin_password = "changeme"

@@ -1,0 +1,66 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.postgresql.clusterName }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "fastapi-app.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.postgresql.instances }}
+
+  storage:
+    size: {{ .Values.postgresql.storage.size }}
+    storageClass: {{ .Values.postgresql.storage.storageClass }}
+
+  bootstrap:
+    initdb:
+      database: {{ .Values.postgresql.database }}
+      owner: {{ .Values.postgresql.owner }}
+
+  postgresql:
+    parameters:
+      {{- range $key, $value := .Values.postgresql.parameters }}
+      {{ $key }}: {{ $value | quote }}
+      {{- end }}
+
+  # -------------------------------------------------------------------
+  # AZ SPREADING — hard anti-affinity ensures one pod per AZ
+  # -------------------------------------------------------------------
+  affinity:
+    topologyKey: {{ .Values.postgresql.affinity.topologyKey }}
+    podAntiAffinityType: {{ .Values.postgresql.affinity.podAntiAffinityType }}
+    {{- with .Values.postgresql.affinity.nodeSelector }}
+    nodeSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.postgresql.affinity.tolerations }}
+    tolerations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: {{ .Values.postgresql.affinity.topologyKey }}
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          cnpg.io/cluster: {{ .Values.postgresql.clusterName }}
+
+  resources:
+    {{- toYaml .Values.postgresql.resources | nindent 4 }}
+
+  {{- if .Values.postgresql.monitoring.enablePodMonitor }}
+  monitoring:
+    enablePodMonitor: true
+  {{- end }}
+
+  {{- if .Values.postgresql.backup.enabled }}
+  backup:
+    barmanObjectStore:
+      destinationPath: "s3://{{ .Values.postgresql.backup.s3Bucket }}{{ .Values.postgresql.backup.s3Path }}"
+      s3Credentials:
+        inheritFromIAMRole: true
+      wal:
+        compression: gzip
+    retentionPolicy: {{ .Values.postgresql.backup.retentionPolicy | quote }}
+  {{- end }}

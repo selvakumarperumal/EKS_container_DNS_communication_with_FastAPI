@@ -1,3 +1,13 @@
+terraform {
+  required_version = ">= 1.14.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+}
+
 ###############################################################################
 # VPC MODULE — MAIN CONFIGURATION
 # =============================================================================
@@ -353,7 +363,7 @@ resource "aws_route" "private" {
 resource "aws_route_table_association" "private" {
   count          = length(var.private_subnet_cidrs)
   subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private[var.single_nat_gateway ? 0 : count.index].id
+  route_table_id = aws_route_table.private[var.enable_nat_gateway ? (var.single_nat_gateway ? 0 : count.index) : 0].id
 
   depends_on = [aws_route.private]
 }

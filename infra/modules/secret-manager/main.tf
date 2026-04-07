@@ -1,3 +1,13 @@
+terraform {
+  required_version = ">= 1.14.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+}
+
 ###############################################################################
 # SECRETS MANAGER MODULE — MAIN CONFIGURATION
 # =============================================================================
@@ -46,7 +56,7 @@
 # CONDITIONAL: Only created if the API secret is enabled.
 # =============================================================================
 resource "aws_kms_key" "secrets" {
-  count                   = var.create_api_secret ? 1 : 0
+  count                   = var.create_app_secrets ? 1 : 0
   description             = "KMS key for Secrets Manager encryption"
   deletion_window_in_days = 7    # 7-day grace period before permanent deletion
   enable_key_rotation     = true # Auto-rotate key material annually
@@ -61,41 +71,44 @@ resource "aws_kms_key" "secrets" {
 
 # Human-friendly alias for the KMS key
 resource "aws_kms_alias" "secrets" {
-  count         = var.create_api_secret ? 1 : 0
+  count         = var.create_app_secrets ? 1 : 0
   name          = "alias/${var.name_prefix}-secrets"
   target_key_id = aws_kms_key.secrets[0].key_id # [0] because it's a count resource
 }
 
 
 # =============================================================================
-# SECRET: API KEY
+# SECRET: UNIFIED APP SECRETS
 # =============================================================================
-# Stores the API key for external service integration.
-# Examples: Stripe API key, SendGrid key, GitHub token, etc.
+# Stores the unified API keys and DB credentials for the external service integration
 # =============================================================================
-resource "aws_secretsmanager_secret" "api_keys" {
-  count                   = var.create_api_secret ? 1 : 0
-  name                    = "${var.name_prefix}-api-keys"
-  description             = "API key for ${var.name_prefix}"
+resource "aws_secretsmanager_secret" "app_secrets" {
+  count                   = var.create_app_secrets ? 1 : 0
+  name                    = "${var.name_prefix}-app-secrets"
+  description             = "Unified Application Secrets for ${var.name_prefix}"
   kms_key_id              = aws_kms_key.secrets[0].arn
   recovery_window_in_days = 7
 
   tags = merge(
     var.tags,
     {
-      Name = "${var.name_prefix}-api-keys"
-      Type = "api"
+      Name = "${var.name_prefix}-app-secrets"
+      Type = "secrets"
     }
   )
 }
 
-resource "aws_secretsmanager_secret_version" "api_keys" {
-  count     = var.create_api_secret ? 1 : 0
-  secret_id = aws_secretsmanager_secret.api_keys[0].id
+resource "aws_secretsmanager_secret_version" "app_secrets" {
+  count     = var.create_app_secrets ? 1 : 0
+  secret_id = aws_secretsmanager_secret.app_secrets[0].id
   secret_string = jsonencode({
-    api_key = var.api_key # The API key value
+    api_key     = var.api_key
+    db_username = var.db_username
+    db_password = var.db_password
   })
 }
+
+
 
 
 # =============================================================================
@@ -120,7 +133,7 @@ resource "aws_secretsmanager_secret_version" "api_keys" {
 #   3. Pods using that ServiceAccount can read the secrets
 # =============================================================================
 resource "aws_iam_policy" "read_secrets" {
-  count       = var.create_api_secret ? 1 : 0
+  count       = var.create_app_secrets ? 1 : 0
   name_prefix = "${var.name_prefix}-read-secrets-"
   description = "Allow reading secrets from Secrets Manager"
 
@@ -134,7 +147,9 @@ resource "aws_iam_policy" "read_secrets" {
           "secretsmanager:DescribeSecret"  # Get secret metadata
         ]
         # Resource: Only the specific secrets we created (not ALL secrets!)
-        Resource = [aws_secretsmanager_secret.api_keys[0].arn]
+        Resource = compact([
+          var.create_app_secrets ? aws_secretsmanager_secret.app_secrets[0].arn : ""
+        ])
       },
       {
         Effect = "Allow"

@@ -1,0 +1,167 @@
+replicaCount: 3
+
+image:
+  repository: "" # e.g. 123456789.dkr.ecr.ap-south-1.amazonaws.com/fastapi-app
+  tag: "latest"
+  pullPolicy: Always
+
+namespace: fastapi
+
+serviceAccount:
+  create: true
+  name: fastapi-sa
+  annotations: {}
+    # eks.amazonaws.com/role-arn: arn:aws:iam::123456789:role/...
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+env:
+  AWS_REGION: "ap-south-1"
+  AWS_S3_BUCKET: ""
+
+# ---------------------------------------------------------------------------
+# Ingress — ALB with WAF + TLS
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  host: ""             # e.g. api.example.com
+  certificateArn: ""   # ACM certificate ARN
+  wafAclArn: ""        # WAFv2 WebACL ARN
+  ingressClassName: alb
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# Autoscaling — HPA (requires metrics-server)
+# ---------------------------------------------------------------------------
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  scaleDownStabilization: 300
+
+# ---------------------------------------------------------------------------
+# Istio Service Mesh
+# ---------------------------------------------------------------------------
+istio:
+  enabled: true
+  timeout: "15s"
+  retries:
+    attempts: 3
+    perTryTimeout: "5s"
+    retryOn: "5xx,reset,connect-failure,retriable-4xx"
+  circuitBreaker:
+    maxConnections: 100
+    maxRequestsPerConnection: 10
+    consecutive5xxErrors: 5
+    interval: "30s"
+    baseEjectionTime: "30s"
+    maxEjectionPercent: 50
+
+# ---------------------------------------------------------------------------
+# External Secrets Operator — sync AWS Secrets Manager → K8s secrets
+# ---------------------------------------------------------------------------
+externalSecrets:
+  enabled: false
+  redisSecretKey: "fastapi/redis-password"
+  secrets:
+    - secretKey: API_KEY
+      remoteKey: fastapi/app-secrets
+      property: api_key
+    - secretKey: DB_PASSWORD
+      remoteKey: fastapi/app-secrets
+      property: db_password
+
+# ---------------------------------------------------------------------------
+# Network Policies — zero-trust network segmentation
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# ServiceMonitor — Prometheus scraping
+# ---------------------------------------------------------------------------
+serviceMonitor:
+  enabled: true
+  interval: "15s"
+
+# ---------------------------------------------------------------------------
+# Redis — caching layer
+# ---------------------------------------------------------------------------
+redis:
+  host: "redis-master.fastapi.svc"
+  port: 6379
+
+# ---------------------------------------------------------------------------
+# CloudNativePG — AZ-aware PostgreSQL cluster
+# ---------------------------------------------------------------------------
+postgresql:
+  clusterName: fastapi-pg
+  instances: 3 # one per AZ for HA
+
+  storage:
+    size: 50Gi
+    storageClass: gp3-az # AZ-aware StorageClass (WaitForFirstConsumer)
+
+  database: fastapidb
+  owner: fastapi
+
+  parameters:
+    max_connections: "200"
+    shared_buffers: "256MB"
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+  # AZ spreading (hard anti-affinity — never 2 pods in same AZ)
+  affinity:
+    topologyKey: topology.kubernetes.io/zone
+    podAntiAffinityType: required
+    nodeSelector:
+      role: postgres
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: postgres
+        effect: NoSchedule
+
+  monitoring:
+    enablePodMonitor: true
+
+  # S3 backup via Barman (configure bucket + IRSA)
+  backup:
+    enabled: false
+    s3Bucket: ""          # e.g. fastapi-cnpg-backups
+    s3Path: "/backups/"
+    region: "ap-south-1"
+    retentionPolicy: "30d"
+
+# ---------------------------------------------------------------------------
+# PgBouncer Pooler — AZ-aware connection pooling
+# ---------------------------------------------------------------------------
+pooler:
+  enabled: true
+  name: fastapi-pg-pooler-rw
+  instances: 3 # one per AZ
+  type: rw
+  poolMode: transaction
+  maxClientConn: 1000
+  defaultPoolSize: 25
+  maxDbConnections: 100
