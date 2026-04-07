@@ -630,12 +630,18 @@ NACL:            Stateless  — allow inbound 443 → must ALSO explicitly allow
 
 **Inbound Rules:**
 
-| Rule | From | Source Port | Destination Port | Why |
-|------|------|-------------|------------------|-----|
-| 100 | Anywhere | 1024-65535 | 443 | HTTPS traffic to ALB |
-| 200 | Anywhere | 1024-65535 | 80 | HTTP traffic (for redirect to HTTPS) |
-| 300 | Anywhere | 80 or 443 | 1024-65535 | Return traffic from outbound requests (stateless — must be explicit) |
-| 400 | VPC CIDR | Any | Any | Internal VPC communication (NAT GW -> subnets, etc.) |
+| Rule | From | Source Port | Destination Port | Example Source IP:Port | Example Destination IP:Port | Why |
+|------|------|-------------|------------------|-------------------------|------------------------------|-----|
+| 100 | Anywhere | 1024-65535 | 443 | `49.37.22.91:52143` | `3.111.45.10:443` | HTTPS traffic to ALB |
+| 200 | Anywhere | 1024-65535 | 80 | `49.37.22.91:52144` | `3.111.45.10:80` | HTTP traffic (for redirect to HTTPS) |
+| 300 | Anywhere | 80 or 443 | 1024-65535 | `140.82.121.4:443` | `10.0.101.25:35000` | Return traffic from outbound requests (stateless — must be explicit) |
+| 400 | VPC CIDR | Any | Any | `10.0.101.10:443` | `10.0.1.25:32000` | Internal VPC communication (NAT GW -> subnets, etc.) |
+
+**Egress Rules:**
+
+| Rule | To | Source Port | Destination Port | Example Source IP:Port | Example Destination IP:Port | Why |
+|------|----|-------------|------------------|-------------------------|------------------------------|-----|
+| 100 | Anywhere | Any | Any | `10.0.101.25:35000` | `140.82.121.4:443` | Allow outbound internet and VPC traffic from subnet resources |
 
 **Ephemeral ports explained:**
 ```
