@@ -102,6 +102,58 @@ flowchart LR
   class prt,nat route;
 ```
 
+### Port-Level Flow (Ephemeral vs 443)
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'background':'#282A36','primaryColor':'#44475A','primaryTextColor':'#F8F8F2','primaryBorderColor':'#6272A4','lineColor':'#8BE9FD'}}}%%
+flowchart LR
+  user[External User Client Port 51001]
+  igw[Internet Gateway]
+  alb[ALB Listener 443]
+  pod[Pod Target 443]
+
+  user -->|Request src 51001 dst 443| igw
+  igw --> alb
+  alb --> pod
+
+  pod -->|Response src 443 dst 51001| alb
+  alb --> igw
+  igw --> user
+
+  classDef edge fill:#44475A,stroke:#8BE9FD,color:#F8F8F2;
+  classDef pub fill:#FFB86C,stroke:#FFB86C,color:#282A36;
+  classDef pri fill:#50FA7B,stroke:#50FA7B,color:#282A36;
+
+  class user,igw edge;
+  class alb pub;
+  class pod pri;
+```
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'background':'#282A36','primaryColor':'#44475A','primaryTextColor':'#F8F8F2','primaryBorderColor':'#6272A4','lineColor':'#8BE9FD'}}}%%
+flowchart LR
+  pod[Pod Client Port 53021]
+  rt[Private Route Table]
+  nat[NAT Gateway EIP]
+  dst[Docker or External API 443]
+
+  pod -->|Request src 53021 dst 443| rt
+  rt --> nat
+  nat --> dst
+
+  dst -->|Response src 443 dst 53021| nat
+  nat --> rt
+  rt --> pod
+
+  classDef pri fill:#50FA7B,stroke:#50FA7B,color:#282A36;
+  classDef route fill:#BD93F9,stroke:#BD93F9,color:#282A36;
+  classDef pub fill:#FFB86C,stroke:#FFB86C,color:#282A36;
+
+  class pod pri;
+  class rt route;
+  class nat,dst pub;
+```
+
 ---
 
 ## Full Code Breakdown
