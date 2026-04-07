@@ -9,55 +9,88 @@ This module builds a production-ready VPC with everything EKS needs to run.
 
 ## Network Architecture
 
-```
-                          INTERNET
-                              │
-                    ┌─────────▼─────────┐
-                    │  Internet Gateway  │  ← Front door to the internet
-                    └─────────┬─────────┘
-                              │
-          ┌───────────────────▼───────────────────────────────┐
-          │                  VPC (10.0.0.0/16)                 │
-          │                                                     │
-          │  ┌──────────────── PUBLIC SUBNETS ───────────────┐  │
-          │  │                                                │  │
-          │  │  AZ-1 (101.0/24)  AZ-2 (102.0/24)  AZ-3      │  │
-          │  │  ┌───────────┐    ┌───────────┐               │  │
-          │  │  │  NAT GW   │    │    ALB    │               │  │
-          │  │  │  (EIP)    │    │           │               │  │
-          │  │  └─────┬─────┘    └─────┬─────┘               │  │
-          │  └────────┼───────────────┼────────────────────── ┘  │
-          │           │               │                           │
-          │  ┌────────▼───────────────▼───────────────────────┐  │
-          │  │               PRIVATE SUBNETS                   │  │
-          │  │                                                  │  │
-          │  │  AZ-1 (1.0/24)    AZ-2 (2.0/24)   AZ-3         │  │
-          │  │  ┌───────────┐    ┌───────────┐                 │  │
-          │  │  │ EKS Nodes │    │ EKS Nodes │                 │  │
-          │  │  │  (Pods)   │    │  (Pods)   │                 │  │
-          │  │  └───────────┘    └───────────┘                 │  │
-          │  └──────────────────────────────────────────────── ┘  │
-          │                                                        │
-          │  ┌─────────────────────────────────────────────────┐  │
-          │  │              SECURITY LAYERS                     │  │
-          │  │   NACLs (subnet level) + Flow Logs (monitoring)  │  │
-          │  └─────────────────────────────────────────────────┘  │
-          └────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  internet[Internet]
+  igw[Internet Gateway]
+  internet --> igw
+
+  subgraph vpc[VPC 10.0.0.0/16]
+    direction TB
+
+    subgraph public[Public Subnets]
+      direction LR
+      pub1[AZ-1 Public 10.0.101.0/24]
+      pub2[AZ-2 Public 10.0.102.0/24]
+      pub3[AZ-3 Public 10.0.103.0/24]
+      nat[NAT Gateway + EIP]
+      alb[Application Load Balancer]
+      pub1 --- nat
+      pub2 --- alb
+    end
+
+    subgraph private[Private Subnets]
+      direction LR
+      p1[AZ-1 Private 10.0.1.0/24<br/>EKS Nodes / Pods]
+      p2[AZ-2 Private 10.0.2.0/24<br/>EKS Nodes / Pods]
+      p3[AZ-3 Private 10.0.3.0/24<br/>EKS Nodes / Pods]
+      rt[Private Route Table(s)]
+    end
+
+    sec[NACLs + VPC Flow Logs]
+  end
+
+  igw -->|Ingress / Egress| alb
+  igw -->|Egress via NAT| nat
+  alb -->|App traffic| p1
+  alb -->|App traffic| p2
+  alb -->|App traffic| p3
+  p1 --> rt
+  p2 --> rt
+  p3 --> rt
+  rt --> nat
+
+  classDef edge fill:#eaf3ff,stroke:#2f6feb,stroke-width:1px,color:#0b1f3b;
+  classDef public fill:#fff4d6,stroke:#a66a00,stroke-width:1px,color:#3a2a00;
+  classDef private fill:#e8ffe8,stroke:#1f7a1f,stroke-width:1px,color:#0d3b0d;
+  classDef route fill:#f4ecff,stroke:#6f42c1,stroke-width:1px,color:#2f1a5a;
+  classDef security fill:#f2f2f2,stroke:#555,stroke-width:1px,color:#222;
+
+  class internet,igw edge;
+  class pub1,pub2,pub3,nat,alb public;
+  class p1,p2,p3 private;
+  class rt route;
+  class sec security;
 ```
 
 ---
 
 ## Traffic Flow Summary
 
-```
-# User → App (inbound)
-User → IGW → Public Subnet (ALB) → Private Subnet (EKS Pod)
+```mermaid
+flowchart LR
+  user[User]
+  igw[Internet Gateway]
+  alb[ALB in Public Subnet]
+  podA[Pod A in Private Subnet]
+  podB[Pod B in Private Subnet]
+  prt[Private Route Table]
+  nat[NAT Gateway]
+  internet[Internet]
 
-# Pod → Internet (outbound, e.g. pulling Docker image)
-EKS Pod → Private Route Table → NAT GW → IGW → Internet
+  user -->|Inbound HTTPS| igw --> alb --> podA
+  podA -->|Outbound 0.0.0.0/0| prt --> nat --> igw --> internet
+  podA -->|East-West (internal)| podB
 
-# Pod → Pod (internal)
-Pod ──────────────────────────────────────────→ Pod  (stays inside VPC, free)
+  classDef ingress fill:#fff4d6,stroke:#a66a00,color:#3a2a00;
+  classDef private fill:#e8ffe8,stroke:#1f7a1f,color:#0d3b0d;
+  classDef route fill:#f4ecff,stroke:#6f42c1,color:#2f1a5a;
+  classDef edge fill:#eaf3ff,stroke:#2f6feb,color:#0b1f3b;
+
+  class user,igw,internet edge;
+  class alb ingress;
+  class podA,podB private;
+  class prt,nat route;
 ```
 
 ---
@@ -257,6 +290,93 @@ single_nat_gateway = false  (production):
   AZ-2 private subnet → NAT-2 in AZ-2 public subnet
   AZ-3 private subnet → NAT-3 in AZ-3 public subnet
   ✅  If AZ-1 fails → AZ-2 and AZ-3 continue unaffected
+```
+
+**Diagram: Single NAT Gateway (`single_nat_gateway = true`)**
+
+```mermaid
+flowchart TB
+  internet[Internet]
+  igw[Internet Gateway]
+  internet --> igw
+
+  subgraph vpc[VPC 10.0.0.0/16]
+    direction TB
+    subgraph pub1[Public Subnet AZ-1]
+      nat[NAT Gateway (single) + EIP]
+    end
+    prt[Shared Private Route Table<br/>0.0.0.0/0 -> NAT GW]
+    subgraph priv[Private Subnets Across 3 AZs]
+      direction LR
+      p1[AZ-1 10.0.1.0/24]
+      p2[AZ-2 10.0.2.0/24]
+      p3[AZ-3 10.0.3.0/24]
+    end
+  end
+
+  p1 --> prt
+  p2 --> prt
+  p3 --> prt
+  prt -->|All outbound traffic| nat
+  nat --> igw
+
+  classDef edge fill:#eaf3ff,stroke:#2f6feb,color:#0b1f3b;
+  classDef public fill:#fff4d6,stroke:#a66a00,color:#3a2a00;
+  classDef private fill:#e8ffe8,stroke:#1f7a1f,color:#0d3b0d;
+  classDef route fill:#f4ecff,stroke:#6f42c1,color:#2f1a5a;
+
+  class internet,igw edge;
+  class nat public;
+  class p1,p2,p3 private;
+  class prt route;
+```
+
+**Diagram: Multi NAT Gateway (`single_nat_gateway = false`)**
+
+```mermaid
+flowchart TB
+  internet[Internet]
+  igw[Internet Gateway]
+  internet --> igw
+
+  subgraph vpc[VPC 10.0.0.0/16]
+    direction TB
+
+    subgraph pub[Public Subnets]
+      direction LR
+      nat1[NAT GW-1 + EIP (AZ-1)]
+      nat2[NAT GW-2 + EIP (AZ-2)]
+      nat3[NAT GW-3 + EIP (AZ-3)]
+    end
+
+    subgraph rt[Private Route Tables]
+      direction LR
+      rt1[RT-1: 0.0.0.0/0 -> NAT-1]
+      rt2[RT-2: 0.0.0.0/0 -> NAT-2]
+      rt3[RT-3: 0.0.0.0/0 -> NAT-3]
+    end
+
+    subgraph privs[Private Subnets]
+      direction LR
+      s1[Subnet AZ-1 10.0.1.0/24]
+      s2[Subnet AZ-2 10.0.2.0/24]
+      s3[Subnet AZ-3 10.0.3.0/24]
+    end
+  end
+
+  s1 --> rt1 --> nat1 --> igw
+  s2 --> rt2 --> nat2 --> igw
+  s3 --> rt3 --> nat3 --> igw
+
+  classDef edge fill:#eaf3ff,stroke:#2f6feb,color:#0b1f3b;
+  classDef public fill:#fff4d6,stroke:#a66a00,color:#3a2a00;
+  classDef private fill:#e8ffe8,stroke:#1f7a1f,color:#0d3b0d;
+  classDef route fill:#f4ecff,stroke:#6f42c1,color:#2f1a5a;
+
+  class internet,igw edge;
+  class nat1,nat2,nat3 public;
+  class s1,s2,s3 private;
+  class rt1,rt2,rt3 route;
 ```
 
 ---
@@ -606,36 +726,60 @@ version  account-id  interface-id  srcaddr     dstaddr      srcport  dstport  pr
 
 ## Complete Resource Dependency Chain
 
-```
-aws_vpc.main
-  │
-  ├──→ aws_internet_gateway.main
-  │         │
-  │         ├──→ aws_eip.nat  (depends_on IGW)
-  │         │         │
-  │         │         └──→ aws_nat_gateway.nat
-  │         │                   │
-  │         │                   └──→ aws_route.private
-  │         │                             │
-  │         │                             └──→ aws_route_table_association.private
-  │         │
-  │         └──→ aws_route.public
-  │                   │
-  │                   └──→ aws_route_table_association.public
-  │
-  ├──→ aws_subnet.public
-  │         └──→ aws_route_table_association.public
-  │
-  ├──→ aws_subnet.private
-  │         └──→ aws_route_table_association.private
-  │
-  ├──→ aws_network_acl.public  (covers all public subnets)
-  ├──→ aws_network_acl.private (covers all private subnets)
-  │
-  └──→ aws_flow_log.main  (optional)
-            ├──→ aws_iam_role.flow_log
-            ├──→ aws_iam_role_policy.flow_log
-            └──→ aws_cloudwatch_log_group.flow_log
+```mermaid
+flowchart TB
+  vpc[aws_vpc.main]
+
+  igw[aws_internet_gateway.main]
+  eip[aws_eip.nat]
+  natgw[aws_nat_gateway.nat]
+  proute[aws_route.private]
+  prta[aws_route_table_association.private]
+  pubroute[aws_route.public]
+  pubrta[aws_route_table_association.public]
+
+  pubsub[aws_subnet.public]
+  privsub[aws_subnet.private]
+  naclpub[aws_network_acl.public]
+  naclpriv[aws_network_acl.private]
+
+  flow[aws_flow_log.main optional]
+  role[aws_iam_role.flow_log]
+  rolepol[aws_iam_role_policy.flow_log]
+  loggrp[aws_cloudwatch_log_group.flow_log]
+
+  vpc --> igw
+  igw --> eip
+  eip --> natgw
+  natgw --> proute
+  proute --> prta
+
+  igw --> pubroute
+  pubroute --> pubrta
+
+  vpc --> pubsub
+  pubsub --> pubrta
+
+  vpc --> privsub
+  privsub --> prta
+
+  vpc --> naclpub
+  vpc --> naclpriv
+
+  vpc --> flow
+  flow --> role
+  flow --> rolepol
+  flow --> loggrp
+
+  classDef core fill:#eaf3ff,stroke:#2f6feb,color:#0b1f3b;
+  classDef net fill:#fff4d6,stroke:#a66a00,color:#3a2a00;
+  classDef route fill:#f4ecff,stroke:#6f42c1,color:#2f1a5a;
+  classDef sec fill:#f2f2f2,stroke:#555,color:#222;
+
+  class vpc core;
+  class igw,eip,natgw,pubsub,privsub net;
+  class proute,prta,pubroute,pubrta route;
+  class naclpub,naclpriv,flow,role,rolepol,loggrp sec;
 ```
 
 ---
