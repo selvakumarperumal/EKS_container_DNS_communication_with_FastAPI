@@ -139,6 +139,18 @@ variable "waf_acl_arn" {
 
 # --- Observability ---
 
+variable "argocd_domain" {
+  description = "Domain for ArgoCD UI (e.g. argocd.example.com). Leave empty to disable ingress."
+  type        = string
+  default     = ""
+}
+
+variable "grafana_domain" {
+  description = "Domain for Grafana UI (e.g. grafana.example.com). Leave empty to disable ingress."
+  type        = string
+  default     = ""
+}
+
 variable "grafana_admin_password" {
   description = "Admin password for Grafana dashboard"
   type        = string

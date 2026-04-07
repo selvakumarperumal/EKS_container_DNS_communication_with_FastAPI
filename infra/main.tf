@@ -23,21 +23,32 @@ provider "aws" {
 # ------------------------------------------------------------------------------
 # KUBERNETES & HELM PROVIDERS (authenticated via EKS)
 # ------------------------------------------------------------------------------
-data "aws_eks_cluster_auth" "main" {
-  name = module.eks.cluster_name
-}
-
+# Uses the exec plugin instead of data.aws_eks_cluster_auth so that
+# authentication is deferred until the provider makes its first API call.
+# This avoids the chicken-and-egg problem on initial `terraform apply`
+# where the EKS cluster does not yet exist.
+# ------------------------------------------------------------------------------
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
   cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-  token                  = data.aws_eks_cluster_auth.main.token
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", var.aws_region]
+  }
 }
 
 provider "helm" {
   kubernetes {
     host                   = module.eks.cluster_endpoint
     cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-    token                  = data.aws_eks_cluster_auth.main.token
+
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", var.aws_region]
+    }
   }
 }
 

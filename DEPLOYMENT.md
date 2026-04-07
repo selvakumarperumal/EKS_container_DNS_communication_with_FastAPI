@@ -346,33 +346,55 @@ curl https://api.example.com/metrics
 
 ## Step 8 — Access Observability Stack
 
-Observability tools (ArgoCD, Grafana) are internal services. Expose them
-via an internal ALB or use `kubectl port-forward` from a bastion/VPN-connected machine.
+ArgoCD and Grafana are exposed via their own ALB Ingress (HTTPS).
+Set the domain variables in `terraform.tfvars`:
 
-### ArgoCD UI
+```hcl
+argocd_domain  = "argocd.example.com"
+grafana_domain = "grafana.example.com"
+```
+
+After `terraform apply`, each gets its own ALB with a public DNS.
+
+### ArgoCD UI (web access)
 
 ```bash
+# Get the ALB DNS for ArgoCD
+ARGOCD_ALB=$(kubectl get ingress -n argocd \
+  -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}')
+echo "ArgoCD UI: https://${ARGOCD_ALB}"
+
 # Get the admin password
 kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath='{.data.password}' | base64 -d && echo
-
-# Expose temporarily (from a machine with kubectl access)
-kubectl port-forward svc/argocd-server 8443:443 -n argocd
-# Then open: https://<your-machine-ip>:8443  (admin / <password>)
 ```
 
-> **Production recommendation:** Create a separate internal ALB Ingress for
-> ArgoCD with restricted security group rules, or access via AWS SSM Session Manager.
+Open **https://\<ARGOCD_ALB\>** in your browser → login with `admin` / `<password>`.
 
-### Grafana (metrics + dashboards)
+If you configured Route53, create a CNAME/Alias for `argocd.example.com` → `<ARGOCD_ALB>`:
 
 ```bash
-kubectl port-forward svc/prometheus-grafana 3000:80 -n observability
-# Then open: http://<your-machine-ip>:3000  (admin / <grafana_admin_password>)
+# Then access via:
+# https://argocd.example.com
 ```
 
-> **Production recommendation:** Expose Grafana via internal ALB with
-> SSO/OAuth2 integration, or keep it behind VPN.
+From the ArgoCD UI you can:
+- View sync status of the **fastapi-app** Application
+- Trigger manual sync or rollback
+- **Delete the app** (click app → Delete → Foreground cascade) before infra teardown
+
+### Grafana (web access)
+
+```bash
+# Get the ALB DNS for Grafana
+GRAFANA_ALB=$(kubectl get ingress -n observability \
+  -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}')
+echo "Grafana UI: https://${GRAFANA_ALB}"
+```
+
+Open **https://\<GRAFANA_ALB\>** → login with `admin` / `<grafana_admin_password>`.
+
+Route53 CNAME: `grafana.example.com` → `<GRAFANA_ALB>`
 
 Pre-configured data sources:
 - **Prometheus** — metrics (auto-discovered via ServiceMonitor)

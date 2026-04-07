@@ -57,4 +57,6 @@ acm_certificate_arn = "arn:aws:acm:ap-south-1:123456789012:certificate/xxx"
 waf_acl_arn         = "arn:aws:wafv2:ap-south-1:123456789012:regional/webacl/xxx"
 
 # --- Observability ---
+argocd_domain          = "argocd.example.com"
+grafana_domain         = "grafana.example.com"
 grafana_admin_password = "changeme"

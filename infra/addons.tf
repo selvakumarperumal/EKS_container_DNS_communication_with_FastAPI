@@ -397,7 +397,49 @@ resource "helm_release" "prometheus_stack" {
     value = "false"
   }
 
-  depends_on = [module.eks]
+  # --- Grafana ALB Ingress ---
+  set {
+    name  = "grafana.ingress.enabled"
+    value = tostring(var.grafana_domain != "")
+  }
+  set {
+    name  = "grafana.ingress.ingressClassName"
+    value = "alb"
+  }
+  set {
+    name  = "grafana.ingress.hosts[0]"
+    value = var.grafana_domain
+  }
+  set {
+    name  = "grafana.ingress.annotations.kubernetes\\.io/ingress\\.class"
+    value = "alb"
+  }
+  set {
+    name  = "grafana.ingress.annotations.alb\\.ingress\\.kubernetes\\.io/scheme"
+    value = "internet-facing"
+  }
+  set {
+    name  = "grafana.ingress.annotations.alb\\.ingress\\.kubernetes\\.io/target-type"
+    value = "ip"
+  }
+  set {
+    name  = "grafana.ingress.annotations.alb\\.ingress\\.kubernetes\\.io/listen-ports"
+    value = "[{\"HTTPS\":443}]"
+  }
+  set {
+    name  = "grafana.ingress.annotations.alb\\.ingress\\.kubernetes\\.io/ssl-redirect"
+    value = "443"
+  }
+  set {
+    name  = "grafana.ingress.annotations.alb\\.ingress\\.kubernetes\\.io/certificate-arn"
+    value = var.acm_certificate_arn
+  }
+  set {
+    name  = "grafana.ingress.annotations.alb\\.ingress\\.kubernetes\\.io/healthcheck-path"
+    value = "/api/health"
+  }
+
+  depends_on = [module.eks, helm_release.aws_lb_controller]
 }
 
 # ==============================================================================
@@ -447,7 +489,63 @@ resource "helm_release" "argocd" {
   namespace        = "argocd"
   create_namespace = true
 
-  depends_on = [module.eks]
+  # Expose ArgoCD server via ALB (HTTPS)
+  set {
+    name  = "server.service.type"
+    value = "ClusterIP"
+  }
+  set {
+    name  = "server.ingress.enabled"
+    value = tostring(var.argocd_domain != "")
+  }
+  set {
+    name  = "server.ingress.ingressClassName"
+    value = "alb"
+  }
+  set {
+    name  = "server.ingress.hosts[0]"
+    value = var.argocd_domain
+  }
+  set {
+    name  = "server.ingress.annotations.kubernetes\\.io/ingress\\.class"
+    value = "alb"
+  }
+  set {
+    name  = "server.ingress.annotations.alb\\.ingress\\.kubernetes\\.io/scheme"
+    value = "internet-facing"
+  }
+  set {
+    name  = "server.ingress.annotations.alb\\.ingress\\.kubernetes\\.io/target-type"
+    value = "ip"
+  }
+  set {
+    name  = "server.ingress.annotations.alb\\.ingress\\.kubernetes\\.io/listen-ports"
+    value = "[{\"HTTPS\":443}]"
+  }
+  set {
+    name  = "server.ingress.annotations.alb\\.ingress\\.kubernetes\\.io/ssl-redirect"
+    value = "443"
+  }
+  set {
+    name  = "server.ingress.annotations.alb\\.ingress\\.kubernetes\\.io/certificate-arn"
+    value = var.acm_certificate_arn
+  }
+  set {
+    name  = "server.ingress.annotations.alb\\.ingress\\.kubernetes\\.io/backend-protocol"
+    value = "HTTPS"
+  }
+  set {
+    name  = "server.ingress.annotations.alb\\.ingress\\.kubernetes\\.io/healthcheck-path"
+    value = "/healthz"
+  }
+  # ArgoCD runs on HTTPS by default — tell it to also accept insecure
+  # connections from the ALB so the health check works.
+  set {
+    name  = "server.extraArgs[0]"
+    value = "--insecure"
+  }
+
+  depends_on = [module.eks, helm_release.aws_lb_controller]
 }
 
 # ==============================================================================
